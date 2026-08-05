@@ -1,0 +1,1458 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>دفتر کارت مرزی و واریزی‌ها</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&display=swap" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+  html, body {
+    margin: 0; padding: 0; background: #EFEDE7; color: #36404A;
+    width: 100%; max-width: 100%; overflow-x: hidden;
+  }
+  input, select, textarea, button { max-width: 100%; }
+  #root, #root * { min-width: 0; }
+  body { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+  input::placeholder { color: #9AA4B2; }
+  input:focus, select:focus { outline: none; border-color: #A8763E !important; }
+  button { cursor: pointer; font-family: 'Vazirmatn','Tahoma',sans-serif; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef } = React;
+
+const uid = () => Math.random().toString(36).slice(2, 10);
+const JMONTHS = ["فروردین","اردیبهشت","خرداد","تیر","مرداد","شهریور","مهر","آبان","آذر","دی","بهمن","اسفند"];
+
+function parseJDate(s) {
+  if (!s) return null;
+  const parts = String(s).split("-");
+  if (parts.length === 3) return { y: Number(parts[0]), m: Number(parts[1]), d: Number(parts[2]) };
+  return null;
+}
+function jdateToStr(j) { const p = (n) => String(n).padStart(2, "0"); return `${j.y}-${p(j.m)}-${p(j.d)}`; }
+function jdateLabel(j) { if (!j) return "—"; return `${j.d} ${JMONTHS[j.m - 1]} ${j.y}`; }
+
+function categorize(label, extraNames) {
+  const l = label || "";
+  const has = (s) => l.indexOf(s) !== -1;
+  if (has("رئوف")) return "کاک رئوف";
+  if (has("صاله") || has("ساله") || has("ساڵه") || has("ساڵە")) return "کاک صاله";
+  if (has("خودم")) return "خودم";
+  if (has("سعید")) return "سعید";
+  // dynamic: any custom person name that appears in the label
+  if (extraNames) {
+    for (let i = 0; i < extraNames.length; i++) {
+      const nm = (extraNames[i] || "").trim();
+      if (nm && nm.length >= 2 && has(nm)) return nm;
+    }
+  }
+  return "سایر";
+}
+// collect all custom person names used anywhere (transfer accounts), so tools recognize them
+function knownPersonNames(data) {
+  const set = new Set();
+  if (data && data.transferAccounts) {
+    Object.values(data.transferAccounts).forEach((accs) => (accs || []).forEach((a) => { if (a.person) set.add(a.person.trim()); }));
+  }
+  return Array.from(set);
+}
+const CATEGORY_ORDER = ["سعید", "خودم", "کاک صاله", "کاک رئوف"];
+const CATEGORY_COLORS = { "سعید": "#5E86AE", "خودم": "#4F8F73", "کاک صاله": "#B8895A", "کاک رئوف": "#8A6BAE", "سایر": "#8A8272" };
+const PERSON_PALETTE = ["#5E86AE", "#4F8F73", "#B8895A", "#8A6BAE", "#B15E52", "#4D9AA6", "#A98A3E", "#7A6BB0", "#3E8E7E", "#C08457", "#6B8E4E", "#B05C7A"];
+function personColor(name) {
+  const key = (name || "").trim();
+  if (CATEGORY_COLORS[key]) return CATEGORY_COLORS[key];
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) % 100000;
+  return PERSON_PALETTE[h % PERSON_PALETTE.length];
+}
+
+// ---- seed data (ids captured for cross-linking) ----
+const M1 = uid(), M2 = uid(), M3 = uid();
+const seedRaw = () => ({
+  previousDebt: 0,
+  months: [
+    { id: M1, name: "اردیبهشت", note: "۸۹۰ واریز ۳۰۰ بابت حساب ماه قبل",
+      costItems: [
+        { id: uid(), label: "کارت", count: 1606, rate: 5400000, amount: null },
+        { id: uid(), label: "کارت", count: 2756, rate: 4500000, amount: null },
+        { id: uid(), label: "امینی", count: null, rate: null, amount: 200000000 },
+        { id: uid(), label: "هزینه ۲ میلیارد", count: null, rate: null, amount: 150000000 },
+        { id: uid(), label: "مهر سیاوش", count: null, rate: null, amount: 100000000 },
+      ],
+      deposits: [
+        { id: uid(), date: "1405-02-27", label: "سعید", amount: 500000000 },
+        { id: uid(), date: "1405-02-27", label: "مهر خودم", amount: 590000000 },
+        { id: uid(), date: "1405-02-28", label: "ملی خودم", amount: 500000000 },
+        { id: uid(), date: "1405-03-02", label: "کاک صاله", amount: 300000000 },
+        { id: uid(), date: "1405-03-04", label: "چک، سعید", amount: 3070000000 },
+        { id: uid(), date: "1405-03-05", label: "کاک صاله", amount: 200000000 },
+        { id: uid(), date: "1405-03-05", label: "کاک صاله", amount: 200000000 },
+        { id: uid(), date: "1405-03-07", label: "کاک صاله", amount: 500000000 },
+        { id: uid(), date: "1405-03-13", label: "ملی خودم", amount: 400000000 },
+        { id: uid(), date: "1405-03-17", label: "کاک صاله", amount: 300000000 },
+        { id: uid(), date: "1405-03-17", label: "کاک صاله", amount: 500000000 },
+        { id: uid(), date: "1405-03-17", label: "کاک صاله", amount: 500000000 },
+        { id: uid(), date: "1405-03-17", label: "کاک صاله", amount: 200000000 },
+        { id: uid(), date: "1405-03-18", label: "کاک صاله", amount: 1000000000 },
+        { id: uid(), date: "1405-03-18", label: "کاک صاله", amount: 200000000 },
+        { id: uid(), date: "1405-03-19", label: "کاک صاله", amount: 800000000 },
+        { id: uid(), date: "1405-03-23", label: "مهر خودم", amount: 400000000 },
+        { id: uid(), date: "1405-03-23", label: "مهر خودم", amount: 1000000000 },
+        { id: uid(), date: "1405-03-23", label: "کاک صاله", amount: 300000000 },
+        { id: uid(), date: "1405-03-24", label: "چک، سعید", amount: 3000000000 },
+        { id: uid(), date: "1405-03-25", label: "کاک صاله", amount: 500000000 },
+        { id: uid(), date: "1405-03-25", label: "کاک صاله", amount: 200000000 },
+        { id: uid(), date: "1405-03-26", label: "کاک صاله", amount: 1000000000 },
+        { id: uid(), date: "1405-03-27", label: "کاک رئوف", amount: 400000000 },
+        { id: uid(), date: "1405-03-30", label: "مهر خودم", amount: 500000000 },
+        { id: uid(), date: "1405-03-31", label: "مهر خودم", amount: 500000000 },
+        { id: uid(), date: "1405-03-31", label: "مهر خودم", amount: 500000000 },
+        { id: uid(), date: "1405-04-08", label: "کاک صاله", amount: 850000000 },
+        { id: uid(), date: "1405-04-08", label: "کاک رئوف", amount: 150000000 },
+        { id: uid(), date: "1405-04-10", label: "کاک صاله", amount: 2334000000 },
+        { id: uid(), date: "1405-04-10", label: "مهر خودم", amount: 200000000 },
+      ] },
+    { id: M2, name: "خرداد", note: "",
+      costItems: [
+        { id: uid(), label: "کارت", count: 2204, rate: 5764000, amount: null },
+        { id: uid(), label: "دلاری ۵۰۰ تومن", count: 1615532, rate: 500, amount: null },
+        { id: uid(), label: "هزینه ۳.۵", count: null, rate: null, amount: 250000000 },
+      ],
+      deposits: [
+        { id: uid(), date: "1405-04-10", label: "مهر خودم", amount: 650000000 },
+        { id: uid(), date: "1405-04-10", label: "مهر سعید", amount: 300000000 },
+        { id: uid(), date: "1405-04-13", label: "کاک صاله", amount: 700000000 },
+        { id: uid(), date: "1405-04-10", label: "مهر خودم", amount: 300000000 },
+        { id: uid(), date: "1405-04-10", label: "کاک رئوف", amount: 500000000 },
+        { id: uid(), date: "1405-04-17", label: "کاک صاله", amount: 1000000000 },
+        { id: uid(), date: "1405-04-22", label: "کاک صاله", amount: 1300000000 },
+        { id: uid(), date: "1405-04-24", label: "کاک صاله", amount: 2700000000 },
+        { id: uid(), date: "1405-04-24", label: "کاک صاله", amount: 300000000 },
+        { id: uid(), date: "1405-04-25", label: "کاک صاله", amount: 1000000000 },
+      ] },
+    { id: M3, name: "تیر", note: "",
+      costItems: [
+        { id: uid(), label: "کارت", count: 2600, rate: 5764000, amount: null },
+        { id: uid(), label: "دلاری ۷۰۰", count: 1905800, rate: 700, amount: null },
+        { id: uid(), label: "هزینه نصف", count: null, rate: null, amount: 150000000 },
+      ],
+      deposits: [] },
+  ],
+  expenses: [
+    { id: uid(), title: "عوارضی ۱", amount: 400000000, payer: "خودم", period: "دی، بهمن، اسفند، فروردین" },
+    { id: uid(), title: "عوارضی ۲", amount: 180000000, payer: "خودم", period: "۱۰۰۰$" },
+    { id: uid(), title: "حسابدار مالیات", amount: 180000000, payer: "خودم", period: "دی و بهمن" },
+    { id: uid(), title: "عوارضی ۱", amount: 100000000, payer: "خودم", period: "اردیبهشت" },
+    { id: uid(), title: "کارت هدیه", amount: 50000000, payer: "کاک ساڵە", period: "اسفند، فروردین و اردیبهشت" },
+    { id: uid(), title: "حسابدار مالیات", amount: 180000000, payer: "خودم", period: "اسفند، فروردین" },
+    { id: uid(), title: "عوارضی ۱", amount: 160000000, payer: "خودم", period: "اردیبهشت" },
+    { id: uid(), title: "عوارضی ۲", amount: 200000000, payer: "خودم", period: "اردیبهشت" },
+    { id: uid(), title: "حسابدار مالیات", amount: 80000000, payer: "خودم", period: "تیر" },
+  ],
+  // manual (non auto-derived) accounts per ledger month — dates normalized to the same Jalali format as the main ledger
+  transferAccounts: {
+    [M1]: [
+      { id: uid(), person: "کاک رئوف", entries: [
+        { id: uid(), date: "1405-03-07", amount: 300000000, bank: "بلو" },
+        { id: uid(), date: "1405-03-08", amount: 300000000, bank: "بلو" },
+        { id: uid(), date: "1405-03-10", amount: 250000000, bank: "بلو" },
+        { id: uid(), date: "1405-03-11", amount: 150000000, bank: "مهر" },
+      ] },
+      { id: uid(), person: "کاک ساڵە", entries: [
+        { id: uid(), date: "1405-03-02", amount: 300000000, bank: "" },
+        { id: uid(), date: "1405-03-05", amount: 200000000, bank: "" },
+        { id: uid(), date: "1405-03-05", amount: 200000000, bank: "" },
+        { id: uid(), date: "1405-03-07", amount: 500000000, bank: "کشاورزی" },
+        { id: uid(), date: "1405-03-09", amount: 500000000, bank: "" },
+        { id: uid(), date: "1405-03-10", amount: 200000000, bank: "" },
+        { id: uid(), date: "1405-03-10", amount: 250000000, bank: "" },
+        { id: uid(), date: "1405-03-11", amount: 350000000, bank: "مهر" },
+        { id: uid(), date: "1405-03-13", amount: 400000000, bank: "ملی" },
+      ] },
+    ],
+    [M2]: [
+      { id: uid(), person: "کاک رئوف", entries: [
+        { id: uid(), date: "1405-04-11", amount: 300000000, bank: "مهر، صالح‌پور" },
+      ] },
+      { id: uid(), person: "کاک ساڵە", entries: [
+        { id: uid(), date: null, amount: null, bank: "از سروش" },
+        { id: uid(), date: "1405-04-11", amount: 300000000, bank: "بلو" },
+      ] },
+    ],
+  },
+  telegramConfig: { token: "", chatId: "", enabled: false, frequency: "always", lastSent: 0 },
+  security: { pin: "" },
+  currency: { usdToToman: 0 },
+  notes: [],
+  transferReceipts: {},
+});
+
+function fmt(n) {
+  if (n === null || n === undefined || isNaN(n)) return "";
+  const sign = n < 0 ? "-" : "";
+  return sign + Math.abs(Math.round(n)).toLocaleString("en-US");
+}
+function costItemTotal(item) {
+  if (item.count !== null && item.count !== undefined && item.rate !== null && item.rate !== undefined) return item.count * item.rate;
+  return item.amount || 0;
+}
+function monthCostTotal(month) { return month.costItems.reduce((s, i) => s + costItemTotal(i), 0); }
+function monthDepositTotal(month) { return month.deposits.reduce((s, d) => s + (d.amount || 0), 0); }
+function monthBalance(month) { return monthCostTotal(month) - monthDepositTotal(month); }
+function expensesTotal(expenses) { return expenses.reduce((s, e) => s + (e.amount || 0), 0); }
+function accountTotal(acc) { return acc.entries.reduce((s, e) => s + (e.amount || 0), 0); }
+function receiptsListTotal(list) { return (list || []).reduce((s, r) => s + (r.amount || 0), 0); }
+function categoryTotals(deposits) {
+  const t = { "سعید": 0, "خودم": 0, "کاک صاله": 0, "کاک رئوف": 0, "سایر": 0 };
+  deposits.forEach((d) => { t[categorize(d.label)] += d.amount || 0; });
+  return t;
+}
+function autoEntriesFor(month, category) {
+  return month.deposits.filter((d) => categorize(d.label) === category);
+}
+function searchAll(data, query) {
+  const q = (query || "").trim();
+  if (!q) return [];
+  const hits = [];
+  data.months.forEach((m) => {
+    m.deposits.forEach((d) => {
+      if ((d.label || "").indexOf(q) !== -1) hits.push({ kind: "دریافتی (دفتر کارت)", month: m.name, label: d.label, date: d.date, amount: d.amount || 0 });
+    });
+    m.costItems.forEach((it) => {
+      if ((it.label || "").indexOf(q) !== -1) hits.push({ kind: "هزینه (دفتر کارت)", month: m.name, label: it.label, date: null, amount: costItemTotal(it) });
+    });
+    const accs = (data.transferAccounts && data.transferAccounts[m.id]) || [];
+    accs.forEach((a) => {
+      if ((a.person || "").indexOf(q) !== -1) {
+        a.entries.forEach((e) => hits.push({ kind: "واریزی به " + a.person, month: m.name, label: a.person + (e.bank ? " — " + e.bank : ""), date: e.date, amount: e.amount || 0 }));
+      }
+    });
+    const recs = (data.transferReceipts && data.transferReceipts[m.id]) || [];
+    recs.forEach((r) => {
+      if ((r.label || "").indexOf(q) !== -1) hits.push({ kind: "دریافتی دستی", month: m.name, label: r.label, date: r.date, amount: r.amount || 0 });
+    });
+  });
+  (data.expenses || []).forEach((e) => {
+    if ((e.title || "").indexOf(q) !== -1 || (e.payer || "").indexOf(q) !== -1) hits.push({ kind: "هزینه جانبی", month: e.period || "—", label: e.title + (e.payer ? " (" + e.payer + ")" : ""), date: null, amount: e.amount || 0 });
+  });
+  return hits;
+}
+function peopleSummary(data) {
+  // For each person: ledgerReceived (from دفتر کارت deposits), manualReceived (from دریافتی‌ها tab),
+  // and paid (money you sent them in واریزی‌ها). Any name appearing in transfer accounts is included too.
+  const extra = knownPersonNames(data);
+  const map = {};
+  const ensure = (name) => { const key = (name || "").trim(); if (!key) return null; if (!map[key]) map[key] = { name: key, ledgerReceived: 0, manualReceived: 0, paid: 0 }; return map[key]; };
+  data.months.forEach((m) => {
+    m.deposits.forEach((d) => {
+      const cat = categorize(d.label, extra);
+      if (cat !== "سایر") { const p = ensure(cat); if (p) p.ledgerReceived += d.amount || 0; }
+    });
+    const recs = (data.transferReceipts && data.transferReceipts[m.id]) || [];
+    recs.forEach((r) => { const cat = categorize(r.label, extra); if (cat !== "سایر" && r.label) { const p = ensure(cat); if (p) p.manualReceived += r.amount || 0; } });
+    const accs = (data.transferAccounts && data.transferAccounts[m.id]) || [];
+    accs.forEach((a) => { const p = ensure(a.person); if (p) p.paid += accountTotal(a); });
+  });
+  return Object.values(map)
+    .filter((p) => p.ledgerReceived || p.manualReceived || p.paid)
+    .sort((a, b) => (b.ledgerReceived + b.manualReceived + b.paid) - (a.ledgerReceived + a.manualReceived + a.paid));
+}
+function monthReceiptsTotal(month, receiptsList) {
+  return receiptsListTotal(receiptsList) + autoEntriesFor(month, "خودم").reduce((s, e) => s + (e.amount || 0), 0) + autoEntriesFor(month, "سعید").reduce((s, e) => s + (e.amount || 0), 0);
+}
+function monthPaymentsTotal(accounts) { return (accounts || []).reduce((s, a) => s + accountTotal(a), 0); }
+function monthTransfersNet(month, accounts, receiptsList) { return monthReceiptsTotal(month, receiptsList) - monthPaymentsTotal(accounts); }
+function monthTransfersTotal(month, manualAccounts) {
+  const manual = (manualAccounts || []).reduce((s, a) => s + accountTotal(a), 0);
+  const auto = autoEntriesFor(month, "خودم").reduce((s, d) => s + (d.amount || 0), 0) + autoEntriesFor(month, "سعید").reduce((s, d) => s + (d.amount || 0), 0);
+  return manual + auto;
+}
+
+function buildSummaryText(data, grandBalance) {
+  const lines = ["📒 دفتر کارت مرزی و واریزی‌ها", ""];
+  data.months.forEach((m) => {
+    const bal = monthBalance(m);
+    lines.push(`▪️ ${m.name}`);
+    lines.push(`   هزینه: ${fmt(monthCostTotal(m))} ریال`);
+    lines.push(`   واریزی: ${fmt(monthDepositTotal(m))} ریال`);
+    lines.push(`   ${bal > 0 ? "بدهی" : "بستانکاری"}: ${fmt(Math.abs(bal))} ریال`);
+    lines.push("");
+  });
+  if (data.previousDebt) lines.push(`بدهی قبلی: ${fmt(data.previousDebt)} ریال`, "");
+  lines.push("———");
+  lines.push(`مانده کلی: ${fmt(Math.abs(grandBalance))} ریال (${grandBalance > 0 ? "بدهکار" : "طلبکار"})`);
+  lines.push("", "———", "💰 هزینه‌های جانبی:");
+  lines.push(`جمع: ${fmt(expensesTotal(data.expenses || []))} ریال`);
+  return lines.join("\n");
+}
+function buildSummaryTextForMonth(m) {
+  const bal = monthBalance(m);
+  const lines = [`📒 ${m.name} — دفتر کارت مرزی`, ""];
+  lines.push("هزینه‌ها:");
+  m.costItems.forEach((it) => lines.push(`  ${it.label || "—"}: ${fmt(costItemTotal(it))} ریال`));
+  lines.push("", "دریافتی‌ها:");
+  m.deposits.forEach((d) => lines.push(`  ${jdateLabel(parseJDate(d.date))} — ${d.label || "—"}: ${fmt(d.amount || 0)} ریال`));
+  lines.push("", `${bal > 0 ? "بدهی ماه" : "بستانکاری ماه"}: ${fmt(Math.abs(bal))} ریال`);
+  return lines.join("\n");
+}
+function buildReportHtml(data, grandBalance) {
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[m]));
+  const row = (a, b, strong) => `<tr><td>${esc(a)}</td><td style="text-align:left;font-weight:${strong ? 700 : 400}">${esc(b)}</td></tr>`;
+  const now = new Date().toLocaleDateString("fa-IR");
+  let monthsHtml = "";
+  data.months.forEach((m) => {
+    const bal = monthBalance(m);
+    monthsHtml += `<h3>${esc(m.name)}</h3><table>`;
+    monthsHtml += row("جمع هزینه‌ها", fmt(monthCostTotal(m)) + " ریال");
+    monthsHtml += row("جمع دریافتی‌ها", fmt(monthDepositTotal(m)) + " ریال");
+    monthsHtml += row(bal > 0 ? "بدهی ماه" : "بستانکاری ماه", fmt(Math.abs(bal)) + " ریال", true);
+    monthsHtml += `</table>`;
+  });
+  const people = peopleSummary(data);
+  let peopleHtml = "";
+  if (people.length) {
+    peopleHtml = `<h2>خلاصه افراد</h2><table><tr><th>نام</th><th>دریافتی دفتر</th><th>دریافتی تب</th><th>واریزی</th><th>خالص</th></tr>`;
+    people.forEach((p) => {
+      const tot = p.ledgerReceived + p.manualReceived;
+      const net = tot - p.paid;
+      peopleHtml += `<tr><td>${esc(p.name)}</td><td>${fmt(p.ledgerReceived)}</td><td>${fmt(p.manualReceived)}</td><td>${fmt(p.paid)}</td><td style="font-weight:700">${net < 0 ? "−" : ""}${fmt(Math.abs(net))}</td></tr>`;
+    });
+    peopleHtml += `</table>`;
+  }
+  return `<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8">
+  <title>گزارش دفتر کارت مرزی</title>
+  <style>
+    body{font-family:Tahoma,Arial,sans-serif;color:#222;padding:24px;max-width:700px;margin:0 auto}
+    h1{font-size:20px;border-bottom:2px solid #333;padding-bottom:8px}
+    h2{font-size:16px;margin-top:24px;color:#444}
+    h3{font-size:14px;margin:14px 0 4px;color:#555}
+    table{width:100%;border-collapse:collapse;margin-bottom:8px;font-size:13px}
+    td,th{border:1px solid #ddd;padding:6px 9px;text-align:right}
+    th{background:#f3f3f3}
+    .total{font-size:16px;font-weight:700;margin-top:10px;padding:10px;background:#f7f7f7;border-radius:6px;display:flex;justify-content:space-between}
+    .muted{color:#888;font-size:11px}
+    @media print{button{display:none}}
+  </style></head><body>
+  <h1>دفتر کارت مرزی — گزارش کامل</h1>
+  <div class="muted">تاریخ گزارش: ${esc(now)}</div>
+  <div class="total"><span>مانده کلی</span><span>${grandBalance < 0 ? "−" : ""}${fmt(Math.abs(grandBalance))} ریال (${grandBalance > 0 ? "بدهکار" : "طلبکار"})</span></div>
+  <h2>ماه‌ها</h2>${monthsHtml}
+  <h2>هزینه‌های جانبی</h2><table>${data.expenses.map((e) => row(e.title + (e.payer ? " — " + e.payer : ""), fmt(e.amount || 0) + " ریال")).join("")}<tr><td style="font-weight:700">جمع</td><td style="text-align:left;font-weight:700">${fmt(expensesTotal(data.expenses))} ریال</td></tr></table>
+  ${peopleHtml}
+  </body></html>`;
+}
+async function shareText(text, title) {
+  try { if (navigator.share) { await navigator.share({ title: title || "دفتر کارت مرزی", text }); return "shared"; } }
+  catch (e) { if (e && e.name === "AbortError") return "cancelled"; }
+  try { await navigator.clipboard.writeText(text); return "copied"; } catch (e) { return "failed"; }
+}
+function hashColor(str) {
+  const palette = ["#B8895A", "#4F8F73", "#5E86AE", "#B15E52", "#8A6BAE", "#4D9AA6", "#A98A3E"];
+  let h = 0;
+  for (let i = 0; i < (str || "").length; i++) h = (h * 31 + str.charCodeAt(i)) % 997;
+  return palette[h % palette.length];
+}
+async function sendTelegramBackup(config, data) {
+  if (!config || !config.enabled || !config.token || !config.chatId) return "disabled";
+  try {
+    const json = JSON.stringify(data, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const form = new FormData();
+    form.append("chat_id", config.chatId);
+    form.append("caption", "پشتیبان خودکار دفتر کارت مرزی");
+    form.append("document", blob, `پشتیبان-${Date.now()}.json`);
+    const res = await fetch(`https://api.telegram.org/bot${config.token}/sendDocument`, { method: "POST", body: form });
+    const j = await res.json();
+    return j.ok ? "sent" : "failed";
+  } catch (e) { return "failed"; }
+}
+
+const PAPER = "#EFEDE7";
+const DEEP = "#2F3E46", DEEP2 = "#3A4A52";
+const CARD = "#FAF9F6", CARD_SOFT = "#F2F0EA";
+const INK = "#36404A";
+const GOLD = "#A8763E", RUST = "#B5564B", SAGE = "#4F7A66", LINE = "#E2DED4";
+const PAGE_TEXT = "#C7CFD2";
+const FONT = "'Vazirmatn', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif";
+const DISPLAY_FONT = "'Vazirmatn', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif";
+const MONO = "'Vazirmatn', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif";
+
+function Ic({ d, size = 16, color = "currentColor" }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{d}</svg>;
+}
+const IconPlus = (p) => <Ic {...p} d={<><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></>} />;
+const IconTrash = (p) => <Ic {...p} d={<><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></>} />;
+const IconChevron = (p) => <Ic {...p} d={<polyline points="6 9 12 15 18 9"/>} />;
+const IconShare = (p) => <Ic {...p} d={<><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="10.5" x2="15.4" y2="6.5"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/></>} />;
+const IconCheck = (p) => <Ic {...p} d={<polyline points="20 6 9 17 4 12"/>} />;
+const IconCard = (p) => <Ic {...p} d={<><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></>} />;
+const IconWallet = (p) => <Ic {...p} d={<><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></>} />;
+const IconAlert = (p) => <Ic {...p} d={<><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></>} />;
+const IconStamp = (p) => <Ic {...p} d={<><path d="M5 22h14"/><path d="M9 22V13a3 3 0 1 1 6 0v9"/><circle cx="12" cy="8" r="5"/></>} />;
+const IconReceipt = (p) => <Ic {...p} d={<><path d="M4 2h16v20l-3-2-3 2-3-2-3 2-4-2V2Z"/><line x1="8" y1="7" x2="16" y2="7"/><line x1="8" y1="11" x2="16" y2="11"/><line x1="8" y1="15" x2="12" y2="15"/></>} />;
+const IconUsers = (p) => <Ic {...p} d={<><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>} />;
+const IconSend = (p) => <Ic {...p} d={<><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></>} />;
+const IconMail = (p) => <Ic {...p} d={<><path d="M4 4h16v16H4z"/><path d="m22 6-10 7L2 6"/></>} />;
+const IconLock = (p) => <Ic {...p} d={<><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></>} />;
+const IconSearch = (p) => <Ic {...p} d={<><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></>} />;
+const IconChart = (p) => <Ic {...p} d={<><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></>} />;
+const IconCalc = (p) => <Ic {...p} d={<><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="8" y2="10"/><line x1="12" y1="10" x2="12" y2="10"/><line x1="16" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="8" y2="14"/><line x1="12" y1="14" x2="12" y2="14"/><line x1="8" y1="18" x2="16" y2="18"/></>} />;
+const IconShield = (p) => <Ic {...p} d={<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>} />;
+const IconX = (p) => <Ic {...p} d={<><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>} />;
+const IconNote = (p) => <Ic {...p} d={<><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4Z"/></>} />;
+const IconFile = (p) => <Ic {...p} d={<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></>} />;
+const IconCloud = (p) => <Ic {...p} d={<path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>} />;
+const IconUp = (p) => <Ic {...p} d={<><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></>} />;
+const IconDown = (p) => <Ic {...p} d={<><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></>} />;
+
+const inputBase = { border: `1px solid ${LINE}`, borderRadius: 8, background: "#FFFFFF", padding: "7px 9px", fontSize: 12.5, color: INK, fontFamily: FONT, minWidth: 0, width: "100%", maxWidth: "100%" };
+
+function NumberInput({ value, onChange, placeholder, style, readOnly, color }) {
+  const [focused, setFocused] = useState(false);
+  const [text, setText] = useState(value === null || value === undefined ? "" : String(value));
+  useEffect(() => { if (!focused) setText(value === null || value === undefined ? "" : fmt(value)); }, [value, focused]);
+  return (
+    <input style={{ ...inputBase, ...style, color: color || INK, fontFamily: MONO }} placeholder={placeholder} readOnly={readOnly}
+      value={readOnly ? fmt(value) : text}
+      onFocus={() => { setFocused(true); setText(value === null || value === undefined ? "" : String(value)); }}
+      onBlur={() => setFocused(false)}
+      onChange={(e) => { const raw = e.target.value.replace(/[^0-9]/g, ""); setText(raw); onChange(raw === "" ? null : Number(raw)); }} />
+  );
+}
+function DateField({ value, onChange, compact }) {
+  const j = parseJDate(value) || { y: 1405, m: 1, d: 1 };
+  const years = []; for (let y = 1400; y <= 1410; y++) years.push(y);
+  const days = Array.from({ length: 31 }, (_, i) => i + 1);
+  const pad = compact ? "3px 2px" : "5px 3px";
+  const fs = compact ? 11 : 11.5;
+  const selStyle = { border: `1px solid ${LINE}`, borderRadius: 7, background: "#FFFFFF", fontSize: fs, color: INK, fontFamily: MONO, padding: pad, flex: 1, minWidth: 0 };
+  return (
+    <div style={{ display: "flex", gap: 4, flex: 1 }}>
+      <select style={selStyle} value={j.d} onChange={(e) => onChange(jdateToStr({ ...j, d: Number(e.target.value) }))}>{days.map((d) => <option key={d} value={d}>{d}</option>)}</select>
+      <select style={{ ...selStyle, fontFamily: FONT, flex: 1.6 }} value={j.m} onChange={(e) => onChange(jdateToStr({ ...j, m: Number(e.target.value) }))}>{JMONTHS.map((mn, idx) => <option key={mn} value={idx + 1}>{mn}</option>)}</select>
+      <select style={selStyle} value={j.y} onChange={(e) => onChange(jdateToStr({ ...j, y: Number(e.target.value) }))}>{years.map((y) => <option key={y} value={y}>{y}</option>)}</select>
+    </div>
+  );
+}
+
+function App() {
+  const [data, setData] = useState(null);
+  const [openMonth, setOpenMonth] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+  const [toast, setToast] = useState("");
+  const [lastSaved, setLastSaved] = useState(null);
+  const [saveError, setSaveError] = useState(false);
+  const [tab, setTab] = useState("ledger");
+  const [openTransferMonth, setOpenTransferMonth] = useState(null);
+  const [locked, setLocked] = useState(false);
+  const [pinEntry, setPinEntry] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQ, setSearchQ] = useState("");
+  const fileInputRef = useRef(null);
+  const tgTimer = useRef(null);
+
+  const MAIN_KEY = "border-ledger-data-v4";
+  const BACKUP_KEYS = ["border-ledger-backup-1", "border-ledger-backup-2", "border-ledger-backup-3"];
+
+  function normalize(d) {
+    if (!d.expenses) d.expenses = [];
+    if (!d.transferAccounts) d.transferAccounts = {};
+    if (!d.transferReceipts) d.transferReceipts = {};
+    if (!d.telegramConfig) d.telegramConfig = { token: "", chatId: "", enabled: false, frequency: "always", lastSent: 0 };
+    if (!d.telegramConfig.frequency) d.telegramConfig.frequency = "always";
+    if (!d.telegramConfig.lastSent) d.telegramConfig.lastSent = 0;
+    if (!d.security) d.security = { pin: "" };
+    if (!d.currency) d.currency = { usdToToman: 0 };
+    if (!d.notes) d.notes = [];
+    // migrate legacy `transferMonths` (array-based, from an earlier version) into transferAccounts keyed by ledger month id
+    if (Array.isArray(d.transferMonths) && d.transferMonths.length) {
+      d.transferMonths.forEach((tm) => {
+        const match = d.months.find((m) => m.name === tm.name);
+        if (match && (!d.transferAccounts[match.id] || d.transferAccounts[match.id].length === 0)) {
+          d.transferAccounts[match.id] = tm.accounts || [];
+        }
+      });
+    }
+    return d;
+  }
+  function loadBestAvailable() {
+    for (const k of [MAIN_KEY, ...BACKUP_KEYS]) {
+      try {
+        const raw = localStorage.getItem(k);
+        if (raw) { const parsed = JSON.parse(raw); if (parsed && Array.isArray(parsed.months)) return normalize(parsed); }
+      } catch (e) {}
+    }
+    return null;
+  }
+
+  useEffect(() => {
+    const found = loadBestAvailable();
+    const chosen = found || seedRaw();
+    setData(chosen);
+    if (chosen.months[0]) { setOpenMonth(chosen.months[0].id); setOpenTransferMonth(chosen.months[0].id); }
+    if (chosen.security && chosen.security.pin) setLocked(true);
+    setLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!loaded || !data) return;
+    try {
+      const json = JSON.stringify(data);
+      try {
+        const prev = localStorage.getItem(BACKUP_KEYS[1]); if (prev) localStorage.setItem(BACKUP_KEYS[2], prev);
+        const prev1 = localStorage.getItem(BACKUP_KEYS[0]); if (prev1) localStorage.setItem(BACKUP_KEYS[1], prev1);
+        const mainNow = localStorage.getItem(MAIN_KEY); if (mainNow) localStorage.setItem(BACKUP_KEYS[0], mainNow);
+      } catch (e) {}
+      localStorage.setItem(MAIN_KEY, json);
+      setLastSaved(new Date());
+      setSaveError(false);
+    } catch (e) { setSaveError(true); }
+
+    if (data.telegramConfig && data.telegramConfig.enabled) {
+      if (tgTimer.current) clearTimeout(tgTimer.current);
+      tgTimer.current = setTimeout(async () => {
+        const freq = data.telegramConfig.frequency || "always";
+        const now = Date.now();
+        const since = now - (data.telegramConfig.lastSent || 0);
+        const DAY = 86400000;
+        if (freq === "daily" && since < DAY) return;
+        if (freq === "weekly" && since < 7 * DAY) return;
+        const r = await sendTelegramBackup(data.telegramConfig, data);
+        if (r === "sent") { flashToast("پشتیبان به تلگرام ارسال شد ✓"); setData((d) => ({ ...d, telegramConfig: { ...d.telegramConfig, lastSent: now } })); }
+        if (r === "failed") flashToast("ارسال به تلگرام ناموفق بود");
+      }, 45000);
+    }
+    return () => { if (tgTimer.current) clearTimeout(tgTimer.current); };
+  }, [data, loaded]);
+
+  function flashToast(msg) { setToast(msg); setTimeout(() => setToast(""), 2400); }
+  async function handleShareAll() { const r = await shareText(buildSummaryText(data, grandBalance)); if (r === "copied") flashToast("خلاصه در کلیپ‌بورد کپی شد ✓"); if (r === "failed") flashToast("اشتراک‌گذاری ممکن نشد"); }
+  async function handleShareMonth(m) { const r = await shareText(buildSummaryTextForMonth(m), m.name); if (r === "copied") flashToast("خلاصه در کلیپ‌بورد کپی شد ✓"); if (r === "failed") flashToast("اشتراک‌گذاری ممکن نشد"); }
+
+  function handleExport() {
+    try {
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const now = new Date();
+      const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      a.href = url; a.download = `دفتر-کارت-مرزی-پشتیبان-${stamp}.json`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+      flashToast("فایل پشتیبان دانلود شد ✓");
+    } catch (e) { flashToast("دانلود پشتیبان ممکن نشد"); }
+  }
+  function handleImportClick() { fileInputRef.current && fileInputRef.current.click(); }
+  function handleImportFile(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(reader.result);
+        if (!parsed || !Array.isArray(parsed.months)) throw new Error("bad shape");
+        if (!confirm("بازیابی این فایل، اطلاعات فعلی را جایگزین می‌کند. ادامه می‌دهید؟")) return;
+        setData(normalize(parsed));
+        flashToast("اطلاعات بازیابی شد ✓");
+      } catch (err) { flashToast("این فایل معتبر نیست"); }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  }
+  function handleEmail() {
+    const body = encodeURIComponent(buildSummaryText(data, grandBalance));
+    window.location.href = `mailto:?subject=${encodeURIComponent("خلاصه دفتر کارت مرزی")}&body=${body}`;
+  }
+  async function handleTelegramTest() {
+    const r = await sendTelegramBackup({ ...data.telegramConfig, enabled: true }, data);
+    if (r === "sent") flashToast("ارسال آزمایشی موفق بود ✓");
+    else if (r === "disabled") flashToast("ابتدا توکن و چت‌آیدی را وارد کن");
+    else flashToast("ارسال ناموفق بود — توکن/چت‌آیدی را بررسی کن");
+  }
+  function handleExportPdf() {
+    const html = buildReportHtml(data, grandBalance);
+    const w = window.open("", "_blank");
+    if (!w) { flashToast("مرورگر پنجره‌ی جدید را مسدود کرد"); return; }
+    w.document.write(html);
+    w.document.close();
+    setTimeout(() => { w.focus(); w.print(); }, 400);
+  }
+  function handleDriveBackup() {
+    // Google Drive has no keyless browser upload; open Drive so the user can drop the downloaded file in.
+    handleExport();
+    setTimeout(() => window.open("https://drive.google.com/drive/my-drive", "_blank"), 600);
+    flashToast("فایل دانلود شد — در درایو رهاش کن");
+  }
+
+  if (!loaded || !data) return <div style={{ minHeight: "100vh", background: PAPER, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT, color: "#8A8578" }}>در حال بارگذاری…</div>;
+
+  const grandBalance = data.months.reduce((s, m) => s + monthBalance(m), 0) + (data.previousDebt || 0);
+  const expTotal = expensesTotal(data.expenses);
+  const trReceiptsTotal = data.months.reduce((s, m) => s + monthReceiptsTotal(m, data.transferReceipts[m.id]), 0);
+  const trPaymentsTotal = data.months.reduce((s, m) => s + monthPaymentsTotal(data.transferAccounts[m.id]), 0);
+
+  function updateMonth(id, fn) { setData((d) => ({ ...d, months: d.months.map((m) => (m.id === id ? fn(m) : m)) })); }
+  function addMonth() { const name = prompt("نام ماه جدید را وارد کنید:"); if (!name) return; const newM = { id: uid(), name, note: "", costItems: [], deposits: [] }; setData((d) => ({ ...d, months: [...d.months, newM] })); setOpenMonth(newM.id); }
+  function removeMonth(id) { if (!confirm("این ماه حذف شود؟")) return; setData((d) => ({ ...d, months: d.months.filter((m) => m.id !== id), transferAccounts: Object.fromEntries(Object.entries(d.transferAccounts).filter(([k]) => k !== id)), transferReceipts: Object.fromEntries(Object.entries(d.transferReceipts).filter(([k]) => k !== id)) })); }
+
+  function addExpense() { setData((d) => ({ ...d, expenses: [...d.expenses, { id: uid(), title: "", amount: null, payer: "خودم", period: "" }] })); }
+  function updateExpense(id, field, value) { setData((d) => ({ ...d, expenses: d.expenses.map((e) => (e.id === id ? { ...e, [field]: value } : e)) })); }
+  function removeExpense(id) { setData((d) => ({ ...d, expenses: d.expenses.filter((e) => e.id !== id) })); }
+
+  function updateTransferAccounts(monthId, fn) { setData((d) => ({ ...d, transferAccounts: { ...d.transferAccounts, [monthId]: fn(d.transferAccounts[monthId] || []) } })); }
+  function updateTransferReceipts(monthId, fn) { setData((d) => ({ ...d, transferReceipts: { ...d.transferReceipts, [monthId]: fn(d.transferReceipts[monthId] || []) } })); }
+  function updateTelegramConfig(field, value) { setData((d) => ({ ...d, telegramConfig: { ...d.telegramConfig, [field]: value } })); }
+  function setPin(pin) { setData((d) => ({ ...d, security: { ...d.security, pin } })); }
+  function updateCurrency(field, value) { setData((d) => ({ ...d, currency: { ...d.currency, [field]: value } })); }
+  function addNote() { setData((d) => ({ ...d, notes: [{ id: uid(), text: "", ts: Date.now(), done: false }, ...d.notes] })); }
+  function updateNote(id, field, value) { setData((d) => ({ ...d, notes: d.notes.map((n) => (n.id === id ? { ...n, [field]: value } : n)) })); }
+  function removeNote(id) { setData((d) => ({ ...d, notes: d.notes.filter((n) => n.id !== id) })); }
+
+  if (locked && data.security && data.security.pin) {
+    return <LockScreen expected={data.security.pin} value={pinEntry} setValue={setPinEntry} onUnlock={() => { setLocked(false); setPinEntry(""); }} />;
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", background: PAPER, direction: "rtl", fontFamily: FONT }}>
+      <div style={{ width: "100%", maxWidth: 480, margin: "0 auto", minHeight: "100vh", position: "relative" }}>
+        <Header tab={tab} grandBalance={grandBalance} expTotal={expTotal} trReceiptsTotal={trReceiptsTotal} trPaymentsTotal={trPaymentsTotal} onShare={handleShareAll} lastSaved={lastSaved} saveError={saveError}
+          onSearch={() => { setSearchOpen(true); setSearchQ(""); }} hasPin={!!(data.security && data.security.pin)} onLock={() => setLocked(true)} />
+        <TabBar tab={tab} setTab={setTab} />
+        <div style={{ padding: "0 14px", marginTop: 14 }}>
+
+          {tab === "ledger" && (
+            <>
+              {data.months.map((month) => (
+                <MonthCard key={month.id} month={month} isOpen={openMonth === month.id}
+                  onToggle={() => setOpenMonth(openMonth === month.id ? null : month.id)}
+                  onChange={(fn) => updateMonth(month.id, fn)} onRemove={() => removeMonth(month.id)}
+                  onShare={() => handleShareMonth(month)} />
+              ))}
+              <button onClick={addMonth} style={styles.addBtn}><IconPlus size={16} /> افزودن ماه جدید</button>
+              <SummaryCard data={data} setData={setData} grandBalance={grandBalance} />
+            </>
+          )}
+
+          {tab === "expenses" && (
+            <ExpensesTab expenses={data.expenses} total={expTotal} onAdd={addExpense} onUpdate={updateExpense} onRemove={removeExpense} />
+          )}
+
+          {tab === "transfers" && (
+            <TransfersTab months={data.months} transferAccounts={data.transferAccounts} transferReceipts={data.transferReceipts} openId={openTransferMonth} setOpenId={setOpenTransferMonth}
+              onChangeAccounts={updateTransferAccounts} onChangeReceipts={updateTransferReceipts} receiptsTotal={trReceiptsTotal} paymentsTotal={trPaymentsTotal} />
+          )}
+
+          {tab === "people" && (
+            <PeopleTab data={data} />
+          )}
+
+          {tab === "notes" && (
+            <NotesTab notes={data.notes} onAdd={addNote} onUpdate={updateNote} onRemove={removeNote} />
+          )}
+
+          {tab === "report" && (
+            <ReportTab data={data} grandBalance={grandBalance} onExportPdf={handleExportPdf} />
+          )}
+
+          {tab === "settings" && (
+            <SettingsTab data={data} onExport={handleExport} onImportClick={handleImportClick} onEmail={handleEmail} onDriveBackup={handleDriveBackup}
+              telegramConfig={data.telegramConfig} onTelegramChange={updateTelegramConfig} onTelegramTest={handleTelegramTest}
+              onSetPin={setPin} currency={data.currency} onCurrencyChange={updateCurrency} flashToast={flashToast} />
+          )}
+
+          <input ref={fileInputRef} type="file" accept="application/json" onChange={handleImportFile} style={{ display: "none" }} />
+        </div>
+        <div style={{ height: 28 }} />
+        {searchOpen && <SearchOverlay data={data} query={searchQ} setQuery={setSearchQ} onClose={() => setSearchOpen(false)} />}
+        {toast && <div style={{ position: "fixed", bottom: 22, left: "50%", transform: "translateX(-50%)", background: "#111827", color: "#fff", padding: "9px 16px", borderRadius: 20, fontSize: 12.5, boxShadow: "0 4px 14px rgba(0,0,0,0.25)", display: "flex", alignItems: "center", gap: 6, zIndex: 50, whiteSpace: "nowrap" }}><IconCheck size={13} /> {toast}</div>}
+      </div>
+    </div>
+  );
+}
+
+const styles = {
+  addBtn: { width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "transparent", border: `1.5px dashed ${LINE}`, borderRadius: 12, padding: "13px 0", color: "#8A8578", fontSize: 14, fontWeight: 600, marginTop: 6 },
+};
+
+function TabBar({ tab, setTab }) {
+  const tabs = [
+    { id: "ledger", label: "دفتر کارت", icon: <IconCard size={13} /> },
+    { id: "expenses", label: "هزینه‌ها", icon: <IconReceipt size={13} /> },
+    { id: "transfers", label: "دریافتی/واریزی", icon: <IconUsers size={13} /> },
+    { id: "people", label: "افراد", icon: <IconUsers size={13} /> },
+    { id: "notes", label: "یادداشت", icon: <IconNote size={13} /> },
+    { id: "report", label: "گزارش", icon: <IconChart size={13} /> },
+    { id: "settings", label: "تنظیمات", icon: <IconShield size={13} /> },
+  ];
+  return (
+    <div style={{ display: "flex", gap: 6, padding: "0 12px", marginTop: 14, position: "relative", zIndex: 5, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+      {tabs.map((t) => (
+        <button key={t.id} onClick={() => setTab(t.id)} style={{
+          flex: "1 0 auto", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5,
+          padding: "10px 12px 8px", borderRadius: 12, border: tab === t.id ? `1px solid ${GOLD}` : `1px solid ${LINE}`,
+          fontFamily: DISPLAY_FONT, fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap",
+          background: tab === t.id ? CARD : CARD_SOFT,
+          color: tab === t.id ? INK : "#8A8578",
+          boxShadow: tab === t.id ? "0 2px 6px rgba(54,64,74,0.12)" : "none",
+          transition: "all 0.15s",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>{t.icon}<span>{t.label}</span></div>
+          {tab === t.id && <div style={{ width: 20, height: 2.5, borderRadius: 2, background: GOLD }} />}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Header({ tab, grandBalance, expTotal, trReceiptsTotal, trPaymentsTotal, onShare, lastSaved, saveError, onSearch, hasPin, onLock }) {
+  let label, value, owed;
+  if (tab === "expenses") { label = "جمع هزینه‌های جانبی"; value = expTotal; owed = true; }
+  else { owed = grandBalance > 0; label = owed ? "مانده بدهی کل" : "مانده طلبکاری کل"; value = grandBalance; }
+  const savedText = saveError ? "⚠ ذخیره ناموفق بود" : lastSaved ? `ذخیره شد — ${lastSaved.toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit" })}` : "";
+  const iconBtn = { display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, background: "rgba(255,255,255,0.16)", border: "1px solid rgba(255,255,255,0.3)", borderRadius: 20, color: "#fff" };
+  const simpleValue = tab !== "transfers";
+  return (
+    <div style={{ background: `linear-gradient(150deg, ${DEEP} 0%, ${DEEP2} 100%)`, padding: "22px 18px 22px", borderRadius: "0 0 22px 22px", position: "relative", overflow: "hidden", borderBottom: `1px solid ${LINE}` }}>
+      
+      <div style={{ position: "absolute", top: -50, left: -40, width: 170, height: 170, borderRadius: "50%", background: "radial-gradient(circle, rgba(255,255,255,0.18), transparent 70%)" }} />
+      <div style={{ position: "absolute", bottom: -60, right: -30, width: 150, height: 150, borderRadius: "50%", background: "radial-gradient(circle, rgba(255,255,255,0.10), transparent 70%)" }} />
+      <div style={{ position: "relative" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#fff", fontSize: 12.5, letterSpacing: 0.3, fontWeight: 700, fontFamily: DISPLAY_FONT }}><IconCard size={14} /> دفتر کارت مرزی</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+            <button onClick={onSearch} style={iconBtn}><IconSearch size={14} /></button>
+            {hasPin && <button onClick={onLock} style={iconBtn}><IconLock size={14} /></button>}
+            <button onClick={onShare} style={iconBtn}><IconShare size={14} /></button>
+          </div>
+        </div>
+
+        {tab === "transfers" ? (
+          <div style={{ marginTop: 20, display: "flex", gap: 10 }}>
+            <div style={{ flex: 1, background: "rgba(255,255,255,0.14)", border: "1px solid rgba(255,255,255,0.28)", borderRadius: 14, padding: "12px 14px" }}>
+              <div style={{ color: PAGE_TEXT, fontSize: 11, marginBottom: 6 }}>جمع دریافتی‌ها</div>
+              <div style={{ color: "#fff", fontFamily: MONO, fontSize: 18, fontWeight: 700 }}>{fmt(trReceiptsTotal)}</div>
+            </div>
+            <div style={{ flex: 1, background: "rgba(255,255,255,0.14)", border: "1px solid rgba(255,255,255,0.28)", borderRadius: 14, padding: "12px 14px" }}>
+              <div style={{ color: PAGE_TEXT, fontSize: 11, marginBottom: 6 }}>جمع واریزی‌ها</div>
+              <div style={{ color: "#fff", fontFamily: MONO, fontSize: 18, fontWeight: 700 }}>{fmt(trPaymentsTotal)}</div>
+            </div>
+          </div>
+        ) : (
+          <div style={{ marginTop: 20, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div>
+              <div style={{ color: PAGE_TEXT, fontSize: 12, marginBottom: 7 }}>{label}</div>
+              <div style={{ color: "#fff", fontFamily: MONO, fontSize: 23, fontWeight: 600, letterSpacing: 0.2, wordBreak: "break-all" }}>{fmt(Math.abs(value))}<span style={{ fontSize: 12.5, color: PAGE_TEXT, fontFamily: FONT, marginRight: 6 }}>ریال</span></div>
+              {savedText && <div style={{ fontSize: 10, color: saveError ? "#E8A9A2" : "#A9C9B6", marginTop: 6 }}>{savedText}</div>}
+            </div>
+            <StampBadge owed={owed} />
+          </div>
+        )}
+        {tab === "transfers" && savedText && <div style={{ fontSize: 10, color: saveError ? "#E8A9A2" : "#A9C9B6", marginTop: 10 }}>{savedText}</div>}
+      </div>
+    </div>
+  );
+}
+function StampBadge({ owed }) {
+  const c = owed ? "#E0B080" : "#A9C9B6";
+  return (
+    <div style={{
+      width: 64, height: 64, borderRadius: "50%",
+      background: `radial-gradient(circle at 35% 30%, rgba(255,255,255,0.06), transparent 60%)`,
+      border: `2px solid ${c}`, outline: `1px solid ${c}`, outlineOffset: 3,
+      display: "flex", alignItems: "center", justifyContent: "center", transform: "rotate(-14deg)", flexShrink: 0,
+      boxShadow: `0 0 0 1px rgba(0,0,0,0.3), inset 0 0 10px rgba(0,0,0,0.25), 0 3px 10px rgba(0,0,0,0.4)`,
+    }}>
+      <div style={{ textAlign: "center" }}>
+        <IconStamp size={18} color={c} />
+        <div style={{ fontSize: 6.5, color: c, fontWeight: 800, letterSpacing: 0.8, fontFamily: DISPLAY_FONT, marginTop: 1 }}>{owed ? "بدهکار" : "طلبکار"}</div>
+      </div>
+    </div>
+  );
+}
+
+function MonthCard({ month, isOpen, onToggle, onChange, onRemove, onShare }) {
+  const costTotal = monthCostTotal(month), depositTotal = monthDepositTotal(month), balance = monthBalance(month), owed = balance > 0;
+  const catTotals = categoryTotals(month.deposits);
+  function updateField(list, id, field, value) { onChange((m) => ({ ...m, [list]: m[list].map((it) => (it.id === id ? { ...it, [field]: value } : it)) })); }
+  function removeItem(list, id) { onChange((m) => ({ ...m, [list]: m[list].filter((it) => it.id !== id) })); }
+  function addCostItem() { onChange((m) => ({ ...m, costItems: [...m.costItems, { id: uid(), label: "", count: null, rate: null, amount: null }] })); }
+  function addDeposit() { const lastDate = month.deposits.length ? month.deposits[month.deposits.length - 1].date : "1405-01-01"; onChange((m) => ({ ...m, deposits: [...m.deposits, { id: uid(), date: lastDate, label: "", amount: null }] })); }
+  return (
+    <div style={{ background: CARD, border: `1px solid ${LINE}`, borderRadius: 16, marginTop: 14, boxShadow: "0 1px 2px rgba(54,64,74,0.06)", overflow: "hidden" }}>
+      <button onClick={onToggle} style={{ width: "100%", background: "transparent", border: "none", padding: "15px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ fontSize: 16, fontWeight: 800, color: INK, fontFamily: DISPLAY_FONT }}>{month.name}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ textAlign: "left" }}><div style={{ fontFamily: MONO, fontSize: 13.5, fontWeight: 600, color: owed ? RUST : SAGE }}>{fmt(Math.abs(balance))}</div><div style={{ fontSize: 9.5, color: INK, opacity: 0.5 }}>{owed ? "بدهی ماه" : "بستانکاری"}</div></div>
+          <IconChevron size={17} color={INK} style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s", opacity: 0.55 }} />
+        </div>
+      </button>
+      {isOpen && (
+        <div style={{ padding: "0 14px 16px" }}>
+          {month.note ? <div style={{ display: "flex", gap: 6, background: "#F3EBDF", border: "1px solid #E4D3BC", borderRadius: 10, padding: "8px 10px", fontSize: 12, color: "#7A5426", marginBottom: 12, alignItems: "flex-start" }}><IconAlert size={13} /> <span>{month.note}</span></div> : null}
+          <SectionLabel icon={<IconCard size={12} />} text="هزینه‌ها و خرید کارت" total={costTotal} color={GOLD} />
+          {month.costItems.map((item) => <CostRow key={item.id} item={item} onChange={(f, v) => updateField("costItems", item.id, f, v)} onRemove={() => removeItem("costItems", item.id)} />)}
+          <RowAddBtn onClick={addCostItem} text="افزودن ردیف هزینه" />
+          <SectionLabel icon={<IconWallet size={12} />} text="دریافتی‌ها" total={depositTotal} color={SAGE} style={{ marginTop: 18 }} />
+          {month.deposits.map((dep) => <DepositRow key={dep.id} dep={dep} onChange={(f, v) => updateField("deposits", dep.id, f, v)} onRemove={() => removeItem("deposits", dep.id)} />)}
+          <RowAddBtn onClick={addDeposit} text="افزودن دریافتی" />
+
+          <div style={{ marginTop: 16, background: "#FFFFFF", border: `1px solid ${LINE}`, borderRadius: 11, padding: "10px 11px" }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: INK, opacity: 0.6, marginBottom: 7 }}>تفکیک واریزی بر اساس نام</div>
+            {CATEGORY_ORDER.map((cat) => catTotals[cat] > 0 ? (
+              <div key={cat} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 12 }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 6, color: INK }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: CATEGORY_COLORS[cat], display: "inline-block" }} />{cat}</span>
+                <span style={{ fontFamily: MONO, fontWeight: 600, color: INK }}>{fmt(catTotals[cat])}</span>
+              </div>
+            ) : null)}
+            {catTotals["سایر"] > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 12, opacity: 0.7 }}>
+                <span style={{ color: INK }}>سایر</span>
+                <span style={{ fontFamily: MONO, fontWeight: 600, color: INK }}>{fmt(catTotals["سایر"])}</span>
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 14 }}>
+            <button onClick={onShare} style={{ background: "transparent", border: "none", color: SAGE, opacity: 0.75, fontSize: 11.5, display: "flex", alignItems: "center", gap: 4, fontWeight: 600 }}><IconShare size={12} /> اشتراک این ماه</button>
+            <button onClick={onRemove} style={{ background: "transparent", border: "none", color: RUST, opacity: 0.55, fontSize: 11.5, display: "flex", alignItems: "center", gap: 4 }}><IconTrash size={12} /> حذف این ماه</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+function SectionLabel({ icon, text, total, color, style }) {
+  return <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 2px", borderBottom: `1px solid ${LINE}`, marginBottom: 8, ...style }}><div style={{ display: "flex", alignItems: "center", gap: 6, color, fontSize: 11.5, fontWeight: 700, fontFamily: DISPLAY_FONT }}>{icon}{text}</div><div style={{ fontFamily: MONO, fontSize: 12.5, fontWeight: 600, color: INK, opacity: 0.75 }}>{fmt(total)}</div></div>;
+}
+function RowAddBtn({ onClick, text }) {
+  return <button onClick={onClick} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 5, background: "transparent", border: "none", color: "#8A8578", opacity: 1, fontSize: 11.5, padding: "8px 0 2px", fontWeight: 600 }}><IconPlus size={12} /> {text}</button>;
+}
+function CostRow({ item, onChange, onRemove }) {
+  const computed = item.count !== null && item.count !== undefined && item.rate !== null && item.rate !== undefined;
+  const total = costItemTotal(item);
+  const fieldLabel = { fontSize: 9, color: INK, opacity: 0.5, marginBottom: 2, fontWeight: 600 };
+  return (
+    <div style={{ background: CARD_SOFT, border: `1px solid ${LINE}`, borderRadius: 10, padding: "8px 9px", marginBottom: 7 }}>
+      <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
+        <input style={{ ...inputBase, flex: 1, fontWeight: 700, fontSize: 12.5, padding: "5px 8px" }} placeholder="شرح هزینه" value={item.label} onChange={(e) => onChange("label", e.target.value)} />
+        <button onClick={onRemove} style={{ background: "none", border: "none", opacity: 0.4, flexShrink: 0, padding: 2 }}><IconTrash size={13} color={RUST} /></button>
+      </div>
+
+      <div style={{ display: "flex", gap: 6, alignItems: "flex-end" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={fieldLabel}>تعداد</div>
+          <NumberInput value={item.count} onChange={(v) => onChange("count", v)} placeholder="—" style={{ textAlign: "center", fontSize: 12, padding: "5px 4px" }} />
+        </div>
+        <div style={{ paddingBottom: 6, color: INK, opacity: 0.35, fontSize: 12 }}>×</div>
+        <div style={{ flex: 1.2, minWidth: 0 }}>
+          <div style={fieldLabel}>نرخ واحد</div>
+          <NumberInput value={item.rate} onChange={(v) => onChange("rate", v)} placeholder="—" style={{ textAlign: "center", fontSize: 12, padding: "5px 4px" }} />
+        </div>
+        <div style={{ flex: 1.7, minWidth: 0 }}>
+          <div style={fieldLabel}>{computed ? "مبلغ کل (خودکار)" : "مبلغ"}</div>
+          {computed ? (
+            <div style={{ background: "#EEEADF", border: `1px solid #E0D8C4`, borderRadius: 8, padding: "6px 6px", textAlign: "center", fontFamily: MONO, fontSize: 12, fontWeight: 800, color: GOLD, whiteSpace: "nowrap", overflow: "hidden" }}>{fmt(total)}</div>
+          ) : (
+            <input inputMode="numeric" value={item.amount == null ? "" : fmt(item.amount)} onChange={(e) => onChange("amount", e.target.value === "" ? null : Number(e.target.value.replace(/[^0-9]/g, "")))}
+              placeholder="مبلغ" style={{ ...inputBase, textAlign: "center", fontFamily: MONO, fontSize: 12, fontWeight: 800, color: GOLD, padding: "6px 6px" }} />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+function DepositRow({ dep, onChange, onRemove }) {
+  const cat = categorize(dep.label);
+  const avatarColor = cat !== "سایر" ? personColor(cat) : personColor(dep.label || "?");
+  const initial = (dep.label || "?").trim().charAt(0) || "?";
+  return (
+    <div style={{ background: CARD_SOFT, border: `1px solid ${LINE}`, borderRadius: 9, padding: "6px 7px", marginBottom: 5 }}>
+      <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 5 }}>
+        <div style={{ width: 22, height: 22, borderRadius: "50%", background: avatarColor, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, flexShrink: 0 }}>{initial}</div>
+        <input style={{ ...inputBase, flex: 1, fontWeight: 600, fontSize: 12, padding: "5px 8px" }} placeholder="نام / شرح" value={dep.label} onChange={(e) => onChange("label", e.target.value)} />
+        <button onClick={onRemove} style={{ background: "none", border: "none", opacity: 0.4, flexShrink: 0, padding: 2 }}><IconTrash size={12} color={RUST} /></button>
+      </div>
+      <div style={{ marginBottom: 5 }}>
+        <DateField value={dep.date} onChange={(v) => onChange("date", v)} compact />
+      </div>
+      <NumberInput value={dep.amount} onChange={(v) => onChange("amount", v)} placeholder="مبلغ" style={{ textAlign: "left", fontWeight: 700, color: SAGE, fontSize: 12.5, padding: "5px 8px" }} />
+    </div>
+  );
+}
+function SummaryCard({ data, setData, grandBalance }) {
+  const owed = grandBalance > 0;
+  return (
+    <div style={{ background: `linear-gradient(150deg, ${DEEP} 0%, ${DEEP2} 100%)`, borderRadius: 16, padding: "17px 16px 15px", marginTop: 16, color: "#fff" }}>
+      <div style={{ fontSize: 12.5, color: PAGE_TEXT, fontWeight: 700, marginBottom: 11, fontFamily: DISPLAY_FONT }}>جمع‌بندی کلی</div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 9 }}>
+        <span style={{ fontSize: 12.5, color: PAGE_TEXT }}>بدهی قبلی</span>
+        <NumberInput value={data.previousDebt} onChange={(v) => setData((d) => ({ ...d, previousDebt: v || 0 }))} style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.18)", color: "#fff", textAlign: "left", width: 140, flex: "none" }} />
+      </div>
+      {data.months.map((m) => (
+        <div key={m.id} style={{ display: "flex", justifyContent: "space-between", padding: "3.5px 0", fontSize: 12 }}>
+          <span style={{ color: PAGE_TEXT }}>{m.name}</span>
+          <span style={{ fontFamily: MONO, color: monthBalance(m) > 0 ? "#E0B080" : "#A9C9B6" }}>{monthBalance(m) > 0 ? "" : "−"}{fmt(Math.abs(monthBalance(m)))}</span>
+        </div>
+      ))}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 11, paddingTop: 11, borderTop: "1px solid rgba(255,255,255,0.15)" }}>
+        <span style={{ fontSize: 13, fontWeight: 700 }}>مانده کلی</span>
+        <span style={{ fontFamily: MONO, fontSize: 16, fontWeight: 700, color: owed ? "#E0B080" : "#A9C9B6" }}>{fmt(Math.abs(grandBalance))} <span style={{ fontSize: 10, fontWeight: 400 }}>ریال</span></span>
+      </div>
+    </div>
+  );
+}
+
+function ExpensesTab({ expenses, total, onAdd, onUpdate, onRemove }) {
+  return (
+    <div style={{ background: CARD, border: `1px solid ${LINE}`, borderRadius: 16, padding: "14px", boxShadow: "0 1px 2px rgba(54,64,74,0.06)" }}>
+      <SectionLabel icon={<IconReceipt size={12} />} text="هزینه‌های جانبی (عوارضی، حسابداری و...)" total={total} color={GOLD} />
+      {expenses.map((exp) => (
+        <div key={exp.id} style={{ background: CARD_SOFT, border: `1px solid ${LINE}`, borderRadius: 11, padding: "9px 10px", marginBottom: 8 }}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 7 }}>
+            <input style={{ ...inputBase, flex: 1, fontWeight: 600 }} placeholder="عنوان هزینه" value={exp.title} onChange={(e) => onUpdate(exp.id, "title", e.target.value)} />
+            <button onClick={() => onRemove(exp.id)} style={{ background: "none", border: "none", opacity: 0.35, flexShrink: 0 }}><IconTrash size={13} color={RUST} /></button>
+          </div>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
+            <input style={{ ...inputBase, flex: 1, fontSize: 12 }} placeholder="پرداخت‌کننده" value={exp.payer} onChange={(e) => onUpdate(exp.id, "payer", e.target.value)} />
+            <input style={{ ...inputBase, flex: 1.3, fontSize: 12 }} placeholder="دوره (مثلاً اردیبهشت)" value={exp.period} onChange={(e) => onUpdate(exp.id, "period", e.target.value)} />
+          </div>
+          <NumberInput value={exp.amount} onChange={(v) => onUpdate(exp.id, "amount", v)} placeholder="مبلغ" style={{ textAlign: "left", fontWeight: 700, color: GOLD, fontSize: 13 }} />
+        </div>
+      ))}
+      <RowAddBtn onClick={onAdd} text="افزودن هزینه" />
+    </div>
+  );
+}
+
+function TransfersTab({ months, transferAccounts, transferReceipts, openId, setOpenId, onChangeAccounts, onChangeReceipts, receiptsTotal, paymentsTotal }) {
+  return (
+    <>
+      {months.map((m) => (
+        <TransferMonthCard key={m.id} month={m} accounts={transferAccounts[m.id] || []} receipts={transferReceipts[m.id] || []} isOpen={openId === m.id}
+          onToggle={() => setOpenId(openId === m.id ? null : m.id)}
+          onChangeAccounts={(fn) => onChangeAccounts(m.id, fn)}
+          onChangeReceipts={(fn) => onChangeReceipts(m.id, fn)} />
+      ))}
+      <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+        <div style={{ flex: 1, background: "#EAF0EC", border: `1px solid #CFDDD4`, borderRadius: 16, padding: "14px 15px" }}>
+          <div style={{ fontSize: 11, color: PAGE_TEXT, marginBottom: 5 }}>جمع کل دریافتی‌ها</div>
+          <div style={{ fontFamily: MONO, fontSize: 15, fontWeight: 700, color: SAGE }}>{fmt(receiptsTotal)}</div>
+        </div>
+        <div style={{ flex: 1, background: "#F3EBDF", border: `1px solid #E4D3BC`, borderRadius: 16, padding: "14px 15px" }}>
+          <div style={{ fontSize: 11, color: PAGE_TEXT, marginBottom: 5 }}>جمع کل واریزی‌ها</div>
+          <div style={{ fontFamily: MONO, fontSize: 15, fontWeight: 700, color: GOLD }}>{fmt(paymentsTotal)}</div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function TransferMonthCard({ month, accounts, receipts, isOpen, onToggle, onChangeAccounts, onChangeReceipts }) {
+  const [receiptsOpen, setReceiptsOpen] = useState(true);
+  const [paymentsOpen, setPaymentsOpen] = useState(true);
+  const autoKhodam = autoEntriesFor(month, "خودم");
+  const autoSaeed = autoEntriesFor(month, "سعید");
+  const receiptsTotal = receiptsListTotal(receipts) + autoKhodam.reduce((s, e) => s + (e.amount || 0), 0) + autoSaeed.reduce((s, e) => s + (e.amount || 0), 0);
+  const paymentsTotal = accounts.reduce((s, a) => s + accountTotal(a), 0);
+
+  function updateAccount(accId, fn) { onChangeAccounts((accs) => accs.map((a) => (a.id === accId ? fn(a) : a))); }
+  function addAccount() { onChangeAccounts((accs) => [...accs, { id: uid(), person: "", entries: [] }]); }
+  function removeAccount(accId) { if (!confirm("این حساب حذف شود؟")) return; onChangeAccounts((accs) => accs.filter((a) => a.id !== accId)); }
+
+  function updateReceipt(id, field, value) { onChangeReceipts((list) => list.map((r) => (r.id === id ? { ...r, [field]: value } : r))); }
+  function removeReceipt(id) { onChangeReceipts((list) => list.filter((r) => r.id !== id)); }
+  function addReceipt() { const lastDate = receipts.length ? receipts[receipts.length - 1].date : "1405-01-01"; onChangeReceipts((list) => [...list, { id: uid(), label: "", date: lastDate, amount: null }]); }
+
+  return (
+    <div style={{ background: CARD, border: `1px solid ${LINE}`, borderRadius: 16, marginTop: 14, boxShadow: "0 1px 2px rgba(54,64,74,0.06)", overflow: "hidden" }}>
+      <button onClick={onToggle} style={{ width: "100%", background: "transparent", border: "none", padding: "15px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ fontSize: 16, fontWeight: 800, color: INK, fontFamily: DISPLAY_FONT }}>{month.name}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ textAlign: "left" }}>
+            <div style={{ fontFamily: MONO, fontSize: 11.5, fontWeight: 600, color: SAGE }}>{fmt(receiptsTotal)}</div>
+            <div style={{ fontFamily: MONO, fontSize: 11.5, fontWeight: 600, color: GOLD }}>{fmt(paymentsTotal)}</div>
+          </div>
+          <IconChevron size={17} color={INK} style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s", opacity: 0.55 }} />
+        </div>
+      </button>
+      {isOpen && (
+        <div style={{ padding: "0 14px 16px" }}>
+          <button onClick={() => setReceiptsOpen((o) => !o)} style={{ width: "100%", background: "transparent", border: "none", padding: "6px 0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, color: SAGE, fontSize: 11.5, fontWeight: 700 }}><IconWallet size={12} /> دریافتی‌ها</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontFamily: MONO, fontSize: 12.5, fontWeight: 600, color: INK, opacity: 0.75 }}>{fmt(receiptsTotal)}</span>
+              <IconChevron size={14} color={INK} style={{ transform: receiptsOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s", opacity: 0.5 }} />
+            </div>
+          </button>
+          {receiptsOpen && (
+            <div style={{ borderBottom: `1px solid ${LINE}`, paddingBottom: 10, marginBottom: 4 }}>
+              <AutoAccountBlock person="خودم" entries={autoKhodam} />
+              <AutoAccountBlock person="سعید" entries={autoSaeed} />
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: INK, opacity: 0.55, marginBottom: 7 }}>دریافتی‌های دیگر (دستی)</div>
+                {receipts.map((r) => (
+                  <div key={r.id} style={{ background: CARD_SOFT, border: `1px solid ${LINE}`, borderRadius: 10, padding: "7px 8px", marginBottom: 6 }}>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
+                      <input style={{ ...inputBase, flex: 1, fontWeight: 600, padding: "5px 8px" }} placeholder="از طرف چه کسی" value={r.label} onChange={(e) => updateReceipt(r.id, "label", e.target.value)} />
+                      <button onClick={() => removeReceipt(r.id)} style={{ background: "none", border: "none", opacity: 0.4, flexShrink: 0, padding: 2 }}><IconTrash size={13} color={RUST} /></button>
+                    </div>
+                    <DateField value={r.date} onChange={(v) => updateReceipt(r.id, "date", v)} compact />
+                    <NumberInput value={r.amount} onChange={(v) => updateReceipt(r.id, "amount", v)} placeholder="مبلغ" style={{ marginTop: 5, textAlign: "left", fontWeight: 700, color: SAGE, fontSize: 12.5, padding: "5px 8px" }} />
+                  </div>
+                ))}
+                <RowAddBtn onClick={addReceipt} text="افزودن دریافتی" />
+              </div>
+            </div>
+          )}
+
+          <button onClick={() => setPaymentsOpen((o) => !o)} style={{ width: "100%", background: "transparent", border: "none", padding: "10px 0 6px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, color: GOLD, fontSize: 11.5, fontWeight: 700 }}><IconCard size={12} /> واریزی‌ها</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontFamily: MONO, fontSize: 12.5, fontWeight: 600, color: INK, opacity: 0.75 }}>{fmt(paymentsTotal)}</span>
+              <IconChevron size={14} color={INK} style={{ transform: paymentsOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s", opacity: 0.5 }} />
+            </div>
+          </button>
+          {paymentsOpen && (
+            <div>
+              {accounts.map((acc) => (
+                <AccountBlock key={acc.id} acc={acc} onChange={(fn) => updateAccount(acc.id, fn)} onRemoveAccount={() => removeAccount(acc.id)} />
+              ))}
+              <RowAddBtn onClick={addAccount} text="افزودن واریزی به حساب جدید" />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+function AccountBlock({ acc, onChange, onRemoveAccount }) {
+  const [open, setOpen] = useState(true);
+  const total = accountTotal(acc);
+  function updateEntry(id, field, value) { onChange((a) => ({ ...a, entries: a.entries.map((e) => (e.id === id ? { ...e, [field]: value } : e)) })); }
+  function removeEntry(id) { onChange((a) => ({ ...a, entries: a.entries.filter((e) => e.id !== id) })); }
+  function addEntry() { const lastDate = acc.entries.length ? acc.entries[acc.entries.length - 1].date : "1405-01-01"; onChange((a) => ({ ...a, entries: [...a.entries, { id: uid(), date: lastDate, amount: null, bank: "" }] })); }
+  const avatarColor = personColor(acc.person);
+  return (
+    <div style={{ marginTop: 14 }}>
+      <button onClick={() => setOpen((o) => !o)} style={{ width: "100%", background: "transparent", border: "none", padding: "6px 2px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${LINE}`, marginBottom: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+          <div style={{ width: 20, height: 20, borderRadius: "50%", background: avatarColor, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700 }}>{(acc.person || "?").trim().charAt(0) || "?"}</div>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: acc.person ? INK : "#9AA4B2" }}>{acc.person || "بدون نام — برای نام‌گذاری باز کن"}</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 600, color: SAGE }}>{fmt(total)}</span>
+          <span onClick={(ev) => { ev.stopPropagation(); onRemoveAccount(); }} style={{ display: "flex", opacity: 0.3 }}><IconTrash size={11} color={RUST} /></span>
+          <IconChevron size={13} color={INK} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 0.2s", opacity: 0.5 }} />
+        </div>
+      </button>
+      {open && (
+        <>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 7 }}>
+            <span style={{ fontSize: 10, color: INK, opacity: 0.5, flexShrink: 0 }}>نام:</span>
+            <input style={{ ...inputBase, flex: 1, fontWeight: 600, fontSize: 12, padding: "5px 8px" }} placeholder="نام حساب / شخص" value={acc.person} onChange={(e) => onChange((a) => ({ ...a, person: e.target.value }))} />
+          </div>
+          {acc.entries.map((e) => (
+            <div key={e.id} style={{ background: CARD_SOFT, border: `1px solid ${LINE}`, borderRadius: 9, padding: "6px 7px", marginBottom: 5 }}>
+              <div style={{ display: "flex", gap: 5, alignItems: "center", marginBottom: 5 }}>
+                <DateField value={e.date} onChange={(v) => updateEntry(e.id, "date", v)} compact />
+                <input style={{ ...inputBase, flex: "0 0 32%", fontSize: 11, padding: "4px 7px" }} placeholder="بانک" value={e.bank} onChange={(ev) => updateEntry(e.id, "bank", ev.target.value)} />
+                <button onClick={() => removeEntry(e.id)} style={{ background: "none", border: "none", opacity: 0.4, flexShrink: 0, padding: 2 }}><IconTrash size={12} color={RUST} /></button>
+              </div>
+              <NumberInput value={e.amount} onChange={(v) => updateEntry(e.id, "amount", v)} placeholder="مبلغ" style={{ textAlign: "left", fontWeight: 700, color: SAGE, fontSize: 12.5, padding: "5px 8px" }} />
+            </div>
+          ))}
+          <RowAddBtn onClick={addEntry} text="افزودن ردیف" />
+        </>
+      )}
+    </div>
+  );
+}
+function AutoAccountBlock({ person, entries }) {
+  const total = entries.reduce((s, e) => s + (e.amount || 0), 0);
+  const avatarColor = personColor(person);
+  return (
+    <div style={{ marginTop: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 2px", borderBottom: `1px solid ${LINE}`, marginBottom: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+          <div style={{ width: 20, height: 20, borderRadius: "50%", background: avatarColor, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700 }}>{person.charAt(0)}</div>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: INK }}>{person}</span>
+          <span style={{ fontSize: 9, color: INK, opacity: 0.45 }}>(خودکار از دفتر کارت)</span>
+        </div>
+        <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 600, color: SAGE }}>{fmt(total)}</span>
+      </div>
+      {entries.length === 0 ? (
+        <div style={{ fontSize: 11, color: INK, opacity: 0.4, padding: "4px 2px" }}>موردی در این ماه ثبت نشده</div>
+      ) : entries.map((e) => (
+        <div key={e.id} style={{ display: "flex", justifyContent: "space-between", padding: "5px 2px", fontSize: 12, borderBottom: `1px dashed ${LINE}` }}>
+          <span style={{ color: INK, opacity: 0.7 }}>{jdateLabel(parseJDate(e.date))} — {e.label}</span>
+          <span style={{ fontFamily: MONO, color: SAGE, fontWeight: 600 }}>{fmt(e.amount)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SettingsTab({ data, onExport, onImportClick, onEmail, onDriveBackup, telegramConfig, onTelegramChange, onTelegramTest, onSetPin, currency, onCurrencyChange, flashToast }) {
+  const [pin1, setPin1] = useState("");
+  const [pin2, setPin2] = useState("");
+  const hasPin = !!(data.security && data.security.pin);
+  const card = { background: CARD, border: `1px solid ${LINE}`, borderRadius: 16, padding: "15px 16px", marginTop: 14 };
+  const heading = { fontSize: 12.5, fontWeight: 700, color: INK, marginBottom: 8, fontFamily: DISPLAY_FONT, display: "flex", alignItems: "center", gap: 6 };
+  function savePin() {
+    if (pin1.length < 4) { flashToast("رمز باید حداقل ۴ رقم باشد"); return; }
+    if (pin1 !== pin2) { flashToast("دو رمز یکسان نیستند"); return; }
+    onSetPin(pin1); setPin1(""); setPin2(""); flashToast("رمز تنظیم شد ✓");
+  }
+  function removePin() { if (confirm("رمز حذف شود؟")) { onSetPin(""); flashToast("رمز حذف شد"); } }
+
+  return (
+    <>
+      {/* --- backup --- */}
+      <div style={card}>
+        <div style={heading}>پشتیبان‌گیری</div>
+        <div style={{ fontSize: 11, color: INK, opacity: 0.6, marginBottom: 12, lineHeight: 1.7 }}>
+          اطلاعات خودکار روی همین مرورگر ذخیره می‌شود. برای اطمینان، فایل پشتیبان دانلود کن یا ارسال خودکار به تلگرام را فعال کن.
+        </div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+          <button onClick={onExport} style={{ flex: 1, background: DEEP, color: "#fff", border: "none", borderRadius: 10, padding: "10px 0", fontSize: 12.5, fontWeight: 700 }}>دانلود پشتیبان</button>
+          <button onClick={onImportClick} style={{ flex: 1, background: "transparent", color: INK, border: `1.5px solid ${LINE}`, borderRadius: 10, padding: "10px 0", fontSize: 12.5, fontWeight: 700 }}>بازیابی از فایل</button>
+        </div>
+        <button onClick={onEmail} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "transparent", color: INK, border: `1.5px solid ${LINE}`, borderRadius: 10, padding: "10px 0", fontSize: 12.5, fontWeight: 700, marginBottom: 8 }}>
+          <IconMail size={13} /> ارسال خلاصه با ایمیل
+        </button>
+        <button onClick={onDriveBackup} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "transparent", color: INK, border: `1.5px solid ${LINE}`, borderRadius: 10, padding: "10px 0", fontSize: 12.5, fontWeight: 700 }}>
+          <IconCloud size={13} /> پشتیبان روی گوگل‌درایو
+        </button>
+        <div style={{ fontSize: 10, color: INK, opacity: 0.45, marginTop: 6, lineHeight: 1.7 }}>
+          * فایل دانلود می‌شود و گوگل‌درایو باز می‌شود؛ فقط فایل را داخل درایو رها کن.
+        </div>
+      </div>
+
+      {/* --- telegram auto backup --- */}
+      <div style={card}>
+        <div style={heading}><IconSend size={12} /> ارسال خودکار پشتیبان به تلگرام</div>
+        <div style={{ fontSize: 10.3, color: INK, opacity: 0.6, marginBottom: 8, lineHeight: 1.8 }}>
+          یک ربات با @BotFather بساز و توکنش را وارد کن؛ چت‌آیدی خودت را از @userinfobot بگیر.
+        </div>
+        <input style={{ ...inputBase, marginBottom: 6, fontSize: 11.5 }} placeholder="توکن ربات (Bot Token)" value={telegramConfig.token} onChange={(e) => onTelegramChange("token", e.target.value)} />
+        <input style={{ ...inputBase, marginBottom: 8, fontSize: 11.5 }} placeholder="چت آیدی (Chat ID)" value={telegramConfig.chatId} onChange={(e) => onTelegramChange("chatId", e.target.value)} />
+        <div style={{ fontSize: 11, color: INK, opacity: 0.7, marginBottom: 6 }}>هر چند وقت ارسال شود؟</div>
+        <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+          {[["always", "هر تغییر"], ["daily", "روزانه"], ["weekly", "هفتگی"]].map(([val, lbl]) => (
+            <button key={val} onClick={() => onTelegramChange("frequency", val)} style={{
+              flex: 1, padding: "8px 0", borderRadius: 8, fontSize: 11, fontWeight: 700,
+              border: telegramConfig.frequency === val ? `1px solid ${GOLD}` : `1px solid ${LINE}`,
+              background: telegramConfig.frequency === val ? "#F3EBDF" : "transparent", color: INK,
+            }}>{lbl}</button>
+          ))}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: INK }}>
+            <input type="checkbox" checked={telegramConfig.enabled} onChange={(e) => onTelegramChange("enabled", e.target.checked)} />
+            ارسال خودکار فعال باشد
+          </label>
+          <button onClick={onTelegramTest} style={{ display: "flex", alignItems: "center", gap: 5, background: "transparent", border: `1.5px solid ${LINE}`, borderRadius: 8, padding: "6px 10px", fontSize: 11, fontWeight: 700, color: INK }}>
+            <IconSend size={11} /> ارسال آزمایشی
+          </button>
+        </div>
+      </div>
+
+      {/* --- PIN lock --- */}
+      <div style={card}>
+        <div style={heading}><IconShield size={12} /> قفل با رمز</div>
+        {hasPin ? (
+          <div>
+            <div style={{ fontSize: 11.5, color: SAGE, marginBottom: 10 }}>✓ رمز فعال است. هنگام باز کردن برنامه پرسیده می‌شود.</div>
+            <button onClick={removePin} style={{ background: "transparent", color: RUST, border: `1.5px solid ${LINE}`, borderRadius: 10, padding: "9px 14px", fontSize: 12, fontWeight: 700 }}>حذف رمز</button>
+          </div>
+        ) : (
+          <div>
+            <div style={{ fontSize: 10.5, color: INK, opacity: 0.6, marginBottom: 8, lineHeight: 1.7 }}>یک رمز حداقل ۴ رقمی بگذار. اگر فراموشش کنی، فقط با پاک‌کردن اطلاعات مرورگر باز می‌شود، پس حتماً پشتیبان نگه‌دار.</div>
+            <input type="password" inputMode="numeric" style={{ ...inputBase, marginBottom: 6, textAlign: "center", letterSpacing: 4 }} placeholder="رمز" value={pin1} onChange={(e) => setPin1(e.target.value.replace(/[^0-9]/g, ""))} />
+            <input type="password" inputMode="numeric" style={{ ...inputBase, marginBottom: 8, textAlign: "center", letterSpacing: 4 }} placeholder="تکرار رمز" value={pin2} onChange={(e) => setPin2(e.target.value.replace(/[^0-9]/g, ""))} />
+            <button onClick={savePin} style={{ width: "100%", background: DEEP, color: "#fff", border: "none", borderRadius: 10, padding: "10px 0", fontSize: 12.5, fontWeight: 700 }}>تنظیم رمز</button>
+          </div>
+        )}
+      </div>
+
+      {/* --- currency converter --- */}
+      <div style={card}>
+        <div style={heading}><IconCalc size={12} /> تبدیل ارز</div>
+        <CurrencyConverter currency={currency} onCurrencyChange={onCurrencyChange} />
+      </div>
+    </>
+  );
+}
+
+function CurrencyConverter({ currency, onCurrencyChange }) {
+  const [usd, setUsd] = useState("");
+  const rate = currency.usdToToman || 0;
+  const toman = usd && rate ? Number(usd) * rate : 0;
+  const rial = toman * 10;
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: INK, opacity: 0.7, marginBottom: 6 }}>نرخ هر دلار (تومان)</div>
+      <NumberInput value={currency.usdToToman || null} onChange={(v) => onCurrencyChange("usdToToman", v || 0)} placeholder="مثلاً ۹۰۰۰۰" style={{ marginBottom: 10, textAlign: "left", fontWeight: 700, color: GOLD }} />
+      <div style={{ borderTop: `1px solid ${LINE}`, paddingTop: 10 }}>
+        <div style={{ fontSize: 11, color: INK, opacity: 0.7, marginBottom: 6 }}>مبلغ به دلار</div>
+        <input inputMode="numeric" style={{ ...inputBase, marginBottom: 10, textAlign: "left", fontWeight: 700 }} placeholder="مبلغ دلار" value={usd} onChange={(e) => setUsd(e.target.value.replace(/[^0-9.]/g, ""))} />
+        {rate > 0 && usd ? (
+          <div style={{ background: CARD_SOFT, borderRadius: 10, padding: "10px 12px", fontSize: 12.5 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0" }}><span style={{ color: INK, opacity: 0.7 }}>تومان</span><span style={{ fontFamily: MONO, fontWeight: 700, color: INK }}>{fmt(toman)}</span></div>
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0" }}><span style={{ color: INK, opacity: 0.7 }}>ریال</span><span style={{ fontFamily: MONO, fontWeight: 700, color: INK }}>{fmt(rial)}</span></div>
+          </div>
+        ) : <div style={{ fontSize: 10.5, color: INK, opacity: 0.45 }}>نرخ و مبلغ را وارد کن تا تبدیل شود.</div>}
+      </div>
+    </div>
+  );
+}
+
+function LockScreen({ expected, value, setValue, onUnlock }) {
+  const [err, setErr] = useState(false);
+  function submit() { if (value === expected) onUnlock(); else { setErr(true); setValue(""); } }
+  return (
+    <div style={{ minHeight: "100vh", background: `linear-gradient(160deg, ${DEEP} 0%, ${DEEP2} 100%)`, direction: "rtl", fontFamily: FONT, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div style={{ width: "100%", maxWidth: 320, textAlign: "center" }}>
+        <div style={{ width: 64, height: 64, borderRadius: "50%", background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.3)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 18px" }}>
+          <IconLock size={26} color="#fff" />
+        </div>
+        <div style={{ color: "#fff", fontSize: 16, fontWeight: 700, fontFamily: DISPLAY_FONT, marginBottom: 6 }}>دفتر کارت مرزی</div>
+        <div style={{ color: PAGE_TEXT, fontSize: 12, marginBottom: 20 }}>برای ورود، رمز را وارد کن</div>
+        <input autoFocus type="password" inputMode="numeric" value={value}
+          onChange={(e) => { setValue(e.target.value.replace(/[^0-9]/g, "")); setErr(false); }}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          style={{ width: "100%", textAlign: "center", letterSpacing: 8, fontSize: 20, fontWeight: 700, padding: "12px 0", borderRadius: 12, border: err ? "1px solid #E8A9A2" : "1px solid rgba(255,255,255,0.3)", background: "rgba(255,255,255,0.1)", color: "#fff", marginBottom: err ? 6 : 14 }} />
+        {err && <div style={{ color: "#E8A9A2", fontSize: 11.5, marginBottom: 12 }}>رمز اشتباه است</div>}
+        <button onClick={submit} style={{ width: "100%", background: "#fff", color: DEEP, border: "none", borderRadius: 12, padding: "12px 0", fontSize: 14, fontWeight: 700 }}>ورود</button>
+      </div>
+    </div>
+  );
+}
+
+function SearchOverlay({ data, query, setQuery, onClose }) {
+  const hits = searchAll(data, query);
+  const total = hits.reduce((s, h) => s + h.amount, 0);
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(20,24,30,0.5)", zIndex: 60, display: "flex", flexDirection: "column", direction: "rtl" }} onClick={onClose}>
+      <div style={{ background: PAPER, maxWidth: 480, width: "100%", margin: "0 auto", height: "100%", display: "flex", flexDirection: "column" }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ background: `linear-gradient(150deg, ${DEEP} 0%, ${DEEP2} 100%)`, padding: "16px 16px 14px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.14)", border: "1px solid rgba(255,255,255,0.3)", borderRadius: 12, padding: "9px 12px" }}>
+              <IconSearch size={16} color="#fff" />
+              <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="نام شخص یا شرح را بنویس…"
+                style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: "#fff", fontSize: 13.5, fontFamily: FONT }} />
+              {query && <button onClick={() => setQuery("")} style={{ background: "none", border: "none", display: "flex" }}><IconX size={15} color="#fff" /></button>}
+            </div>
+            <button onClick={onClose} style={{ background: "rgba(255,255,255,0.14)", border: "1px solid rgba(255,255,255,0.3)", borderRadius: 10, padding: "8px 12px", color: "#fff", fontSize: 12, fontWeight: 700 }}>بستن</button>
+          </div>
+          {query && <div style={{ color: PAGE_TEXT, fontSize: 12, marginTop: 10 }}>{hits.length} مورد — جمع: <span style={{ fontFamily: MONO, fontWeight: 700, color: "#fff" }}>{fmt(total)}</span> ریال</div>}
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: 14 }}>
+          {!query && <div style={{ textAlign: "center", color: INK, opacity: 0.45, fontSize: 12.5, marginTop: 40 }}>مثلاً «کاک صاله»، «سعید» یا «عوارضی» را جستجو کن.<br/>همه‌ی ماه‌ها و تب‌ها با هم گشته می‌شوند.</div>}
+          {query && hits.length === 0 && <div style={{ textAlign: "center", color: INK, opacity: 0.45, fontSize: 12.5, marginTop: 40 }}>موردی پیدا نشد.</div>}
+          {hits.map((h, i) => (
+            <div key={i} style={{ background: CARD, border: `1px solid ${LINE}`, borderRadius: 12, padding: "10px 12px", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{h.label || "—"}</div>
+                <div style={{ fontSize: 10.5, color: INK, opacity: 0.55, marginTop: 2 }}>{h.kind} • {h.month}{h.date ? " • " + jdateLabel(parseJDate(h.date)) : ""}</div>
+              </div>
+              <div style={{ fontFamily: MONO, fontSize: 13, fontWeight: 700, color: SAGE, flexShrink: 0 }}>{fmt(h.amount)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Bars({ series, height = 150 }) {
+  const max = Math.max(1, ...series.flatMap((s) => s.values));
+  const groups = series[0].values.length;
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 10, height, padding: "0 4px" }}>
+        {Array.from({ length: groups }).map((_, gi) => (
+          <div key={gi} style={{ flex: 1, display: "flex", alignItems: "flex-end", justifyContent: "center", gap: 3, height: "100%" }}>
+            {series.map((s, si) => (
+              <div key={si} title={fmt(s.values[gi])} style={{ flex: 1, maxWidth: 22, height: `${(s.values[gi] / max) * 100}%`, minHeight: s.values[gi] > 0 ? 3 : 0, background: s.color, borderRadius: "4px 4px 0 0" }} />
+            ))}
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 10, padding: "6px 4px 0" }}>
+        {series[0].labels.map((lbl, i) => (
+          <div key={i} style={{ flex: 1, textAlign: "center", fontSize: 10.5, color: INK, opacity: 0.6 }}>{lbl}</div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ReportTab({ data, grandBalance, onExportPdf }) {
+  const labels = data.months.map((m) => m.name);
+  const cost = data.months.map((m) => monthCostTotal(m));
+  const deposit = data.months.map((m) => monthDepositTotal(m));
+  const card = { background: CARD, border: `1px solid ${LINE}`, borderRadius: 16, padding: "15px 16px", marginBottom: 14 };
+  const heading = { fontSize: 12.5, fontWeight: 700, color: INK, marginBottom: 14, fontFamily: DISPLAY_FONT };
+  const legendItem = (color, text) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: INK, opacity: 0.75 }}>
+      <span style={{ width: 10, height: 10, borderRadius: 3, background: color }} /> {text}
+    </div>
+  );
+  const totalCost = cost.reduce((a, b) => a + b, 0);
+  const totalDep = deposit.reduce((a, b) => a + b, 0);
+  const balByMonth = data.months.map((m) => monthBalance(m));
+
+  return (
+    <>
+      <button onClick={onExportPdf} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, background: DEEP, color: "#fff", border: "none", borderRadius: 12, padding: "12px 0", fontSize: 13, fontWeight: 700, marginBottom: 14 }}>
+        <IconFile size={15} /> خروجی PDF / عکس برای اشتراک‌گذاری
+      </button>
+
+      <div style={card}>
+        <div style={heading}>هزینه و دریافتی هر ماه</div>
+        {labels.length ? <Bars series={[
+          { values: cost, labels, color: GOLD },
+          { values: deposit, labels, color: SAGE },
+        ]} /> : <div style={{ color: INK, opacity: 0.5, fontSize: 12 }}>ماهی ثبت نشده.</div>}
+        <div style={{ display: "flex", gap: 14, justifyContent: "center", marginTop: 12 }}>
+          {legendItem(GOLD, "هزینه")}
+          {legendItem(SAGE, "دریافتی")}
+        </div>
+      </div>
+
+      <div style={card}>
+        <div style={heading}>مقایسه با ماه قبل</div>
+        {data.months.length < 2 ? (
+          <div style={{ color: INK, opacity: 0.5, fontSize: 12 }}>برای مقایسه حداقل دو ماه لازم است.</div>
+        ) : data.months.slice(1).map((m, i) => {
+          const prev = data.months[i];
+          const cur = monthBalance(m), pre = monthBalance(prev);
+          const diff = cur - pre;
+          const up = diff > 0;
+          const pct = pre !== 0 ? Math.round((diff / Math.abs(pre)) * 100) : null;
+          return (
+            <div key={m.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: `1px solid ${LINE}` }}>
+              <span style={{ fontSize: 12, color: INK }}>{prev.name} ← {m.name}</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: MONO, fontSize: 12, fontWeight: 700, color: up ? RUST : SAGE }}>
+                {up ? <IconUp size={13} /> : <IconDown size={13} />}
+                {fmt(Math.abs(diff))}{pct !== null ? ` (${Math.abs(pct)}%)` : ""}
+              </span>
+            </div>
+          );
+        })}
+        <div style={{ fontSize: 10.5, color: INK, opacity: 0.5, marginTop: 8, lineHeight: 1.6 }}>سبز = بدهی کمتر شده، قرمز = بدهی بیشتر شده.</div>
+      </div>
+
+      <div style={card}>
+        <div style={heading}>مانده (بدهی) هر ماه</div>
+        {labels.length ? <Bars series={[{ values: balByMonth.map((b) => Math.abs(b)), labels, color: RUST }]} /> : null}
+        <div style={{ marginTop: 12 }}>
+          {data.months.map((m) => {
+            const b = monthBalance(m);
+            return (
+              <div key={m.id} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12, borderBottom: `1px solid ${LINE}` }}>
+                <span style={{ color: INK }}>{m.name}</span>
+                <span style={{ fontFamily: MONO, fontWeight: 700, color: b > 0 ? RUST : SAGE }}>{b > 0 ? "" : "−"}{fmt(Math.abs(b))}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={card}>
+        <div style={heading}>خلاصه کل</div>
+        <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", fontSize: 12.5 }}><span style={{ color: INK, opacity: 0.7 }}>جمع هزینه‌ها</span><span style={{ fontFamily: MONO, fontWeight: 700, color: GOLD }}>{fmt(totalCost)}</span></div>
+        <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", fontSize: 12.5 }}><span style={{ color: INK, opacity: 0.7 }}>جمع دریافتی‌ها</span><span style={{ fontFamily: MONO, fontWeight: 700, color: SAGE }}>{fmt(totalDep)}</span></div>
+        <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", fontSize: 12.5, borderTop: `1px solid ${LINE}`, marginTop: 4, paddingTop: 8 }}><span style={{ color: INK, fontWeight: 700 }}>مانده کل</span><span style={{ fontFamily: MONO, fontWeight: 700, color: (totalCost - totalDep) > 0 ? RUST : SAGE }}>{fmt(Math.abs(totalCost - totalDep))}</span></div>
+      </div>
+    </>
+  );
+}
+
+function PeopleTab({ data }) {
+  const people = peopleSummary(data);
+  const card = { background: CARD, border: `1px solid ${LINE}`, borderRadius: 16, padding: "14px 15px", marginBottom: 12 };
+  if (!people.length) return <div style={{ ...card, color: INK, opacity: 0.55, fontSize: 12.5, textAlign: "center", padding: "24px 15px" }}>هنوز موردی برای هیچ شخصی ثبت نشده.</div>;
+  const line = (label, value, color) => (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: `1px solid ${LINE}` }}>
+      <span style={{ fontSize: 12, color: INK, opacity: 0.8 }}>{label}</span>
+      <span style={{ fontFamily: MONO, fontSize: 13, fontWeight: 700, color }}>{value}</span>
+    </div>
+  );
+  return (
+    <>
+      <div style={{ background: "#F3EBDF", border: `1px solid #E4D3BC`, borderRadius: 12, padding: "10px 12px", marginBottom: 12, fontSize: 11, color: "#7A5426", lineHeight: 1.8 }}>
+        برای هر شخص: دریافتی از «دفتر کارت» (پول واردشده به اسم او)، و «واریزی من به او» (پولی که خودت برایش فرستاده‌ای). جمع = مجموع این دو.
+      </div>
+      {people.map((p) => {
+        const totalReceived = p.ledgerReceived + p.manualReceived;
+        const sum = totalReceived + p.paid;
+        const color = personColor(p.name);
+        return (
+          <div key={p.name} style={{ ...card, borderRight: `4px solid ${color}` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 6 }}>
+              <div style={{ width: 30, height: 30, borderRadius: "50%", background: color, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, flexShrink: 0 }}>{(p.name || "?").trim().charAt(0)}</div>
+              <span style={{ fontSize: 14, fontWeight: 700, color: INK, fontFamily: DISPLAY_FONT }}>{p.name}</span>
+            </div>
+            {line("دریافتی از دفتر کارت", fmt(p.ledgerReceived), SAGE)}
+            {p.manualReceived > 0 && line("دریافتی دستی (تب دریافتی‌ها)", fmt(p.manualReceived), SAGE)}
+            {line("واریزی من به او", fmt(p.paid), GOLD)}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 9, marginTop: 2 }}>
+              <span style={{ fontSize: 12.5, color: INK, fontWeight: 700 }}>جمع کل</span>
+              <span style={{ fontFamily: MONO, fontSize: 14, fontWeight: 700, color }}>{fmt(sum)}</span>
+            </div>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+function NotesTab({ notes, onAdd, onUpdate, onRemove }) {
+  return (
+    <>
+      <button onClick={onAdd} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, background: DEEP, color: "#fff", border: "none", borderRadius: 12, padding: "12px 0", fontSize: 13, fontWeight: 700, marginBottom: 14 }}>
+        <IconPlus size={15} /> یادداشت جدید
+      </button>
+      {(!notes || notes.length === 0) && (
+        <div style={{ textAlign: "center", color: INK, opacity: 0.45, fontSize: 12.5, marginTop: 20, lineHeight: 1.8 }}>
+          یادداشت‌های سریع و قرارهای شفاهی را اینجا بنویس تا فراموش نشود.<br/>مثلاً «قرار شد کاک صاله فردا ۵۰۰ بریزد».
+        </div>
+      )}
+      {(notes || []).map((n) => (
+        <div key={n.id} style={{ background: CARD, border: `1px solid ${LINE}`, borderRadius: 14, padding: "12px 13px", marginBottom: 10 }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+            <button onClick={() => onUpdate(n.id, "done", !n.done)} style={{ marginTop: 2, width: 20, height: 20, borderRadius: 6, border: `1.5px solid ${n.done ? SAGE : LINE}`, background: n.done ? SAGE : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              {n.done && <IconCheck size={12} color="#fff" />}
+            </button>
+            <textarea value={n.text} onChange={(e) => onUpdate(n.id, "text", e.target.value)} placeholder="یادداشت…" rows={2}
+              style={{ flex: 1, resize: "vertical", border: "none", outline: "none", background: "transparent", fontFamily: FONT, fontSize: 13, color: n.done ? "#9AA4B2" : INK, textDecoration: n.done ? "line-through" : "none", lineHeight: 1.7 }} />
+            <button onClick={() => onRemove(n.id)} style={{ background: "none", border: "none", opacity: 0.35, flexShrink: 0, marginTop: 2 }}><IconTrash size={14} color={RUST} /></button>
+          </div>
+          <div style={{ fontSize: 10, color: INK, opacity: 0.4, marginTop: 6, textAlign: "left" }}>{new Date(n.ts).toLocaleDateString("fa-IR")}</div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+
+
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+</script>
+</body>
+</html>
